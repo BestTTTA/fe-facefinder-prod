@@ -8,6 +8,10 @@ import { api, apiBase, ApiError, API_URL, getToken, setToken, type Profile } fro
 
 // supabaseUrl is read by the server page and passed down, so the value the
 // browser sees is always what the server rendered (no env-inlining mismatch).
+// The paste-a-token field is a local development affordance; it is compiled out
+// of production builds so the public portal only offers Google sign-in.
+const TOKEN_FIELD = process.env.NODE_ENV === "development";
+
 export function LoginForm({ supabaseUrl, reason }: { supabaseUrl: string | null; reason?: string | null }) {
   const SUPABASE_URL = supabaseUrl;
   const router = useRouter();
@@ -80,6 +84,10 @@ export function LoginForm({ supabaseUrl, reason }: { supabaseUrl: string | null;
           the Free package automatically.
         </p>
 
+        {error && (
+          <p className="mt-4 rounded-2xl border border-red-200 bg-red-50 px-3 py-2 text-sm text-red-700">{error}</p>
+        )}
+
         <Button
           variant="dark"
           size="lg"
@@ -97,26 +105,27 @@ export function LoginForm({ supabaseUrl, reason }: { supabaseUrl: string | null;
           </p>
         )}
 
-        <div className="my-6 flex items-center gap-3 text-xs text-muted">
-          <span className="h-px flex-1 bg-line" />
-          or paste an access token
-          <span className="h-px flex-1 bg-line" />
-        </div>
+        {TOKEN_FIELD && (
+          <>
+            <div className="my-6 flex items-center gap-3 text-xs text-muted">
+              <span className="h-px flex-1 bg-line" />
+              or paste an access token (dev only)
+              <span className="h-px flex-1 bg-line" />
+            </div>
 
-        <form onSubmit={(e) => void submitToken(e)} className="space-y-3">
-          <input
-            value={token}
-            onChange={(e) => setTokenInput(e.target.value)}
-            placeholder="eyJhbGciOi…"
-            className="h-11 w-full rounded-full border border-line bg-background px-4 font-mono text-sm outline-none focus:border-navy"
-          />
-          {error && (
-            <p className="rounded-2xl border border-red-200 bg-red-50 px-3 py-2 text-sm text-red-700">{error}</p>
-          )}
-          <Button type="submit" variant="outline" className="w-full" disabled={!token.trim() || checking}>
-            {checking ? "Checking…" : "Open dashboard"}
-          </Button>
-        </form>
+            <form onSubmit={(e) => void submitToken(e)} className="space-y-3">
+              <input
+                value={token}
+                onChange={(e) => setTokenInput(e.target.value)}
+                placeholder="eyJhbGciOi…"
+                className="h-11 w-full rounded-full border border-line bg-background px-4 font-mono text-sm outline-none focus:border-navy"
+              />
+              <Button type="submit" variant="outline" className="w-full" disabled={!token.trim() || checking}>
+                {checking ? "Checking…" : "Open dashboard"}
+              </Button>
+            </form>
+          </>
+        )}
 
         <p className="mt-6 text-center text-xs text-muted">
           API: <span className="font-mono">{shownApi}</span>
