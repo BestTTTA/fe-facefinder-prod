@@ -1,36 +1,64 @@
-This is a [Next.js](https://nextjs.org) project bootstrapped with [`create-next-app`](https://nextjs.org/docs/app/api-reference/cli/create-next-app).
+# fe-facefinder-prod
 
-## Getting Started
+Customer portal for the FaceFinder face recognition API ([be-ml-facefinder-full](https://github.com/BestTTTA)).
+Marketing site, API docs, a playground for trying the API, a customer dashboard and an admin console.
 
-First, run the development server:
+Built with Next.js 16 (App Router), React 19 and Tailwind CSS 4.
+
+## Pages
+
+| Route | What it is |
+|---|---|
+| `/` | Landing page — services, how it works, pricing, security |
+| `/pricing` | Package comparison (Free / Basic / Pro / Enterprise) and FAQ |
+| `/docs` | API reference: auth, response envelope, every endpoint, error codes |
+| `/playground` | Try the API with an API key: register a face, search, browse persons |
+| `/playground/video` | Scan a photo, a video file or the live camera — detects several faces per frame and shows each match with their registered photo and metadata |
+| `/login` | Google sign-in (Supabase) or paste an access token |
+| `/dashboard` | Quota meters, package, usage history, API key management |
+| `/dashboard/people` | Registered people: view photos, edit details, delete (single or bulk) |
+| `/admin` | Admin console: platform stats |
+| `/admin/users` | Users: change package, role and status, browse faces / uploads / searches, delete |
+| `/admin/packages` | Create and edit packages (limits, price, rate limit) |
+| `/admin/audit-logs` | Every admin action |
+
+Admin sessions are separate from customer sessions; `/admin/login` uses the API's
+`ADMIN_BOOTSTRAP_USERNAME` account.
+
+## Running locally
 
 ```bash
-npm run dev
-# or
-yarn dev
-# or
-pnpm dev
-# or
-bun dev
+npm install
+cp .env.example .env.local   # then fill in the values
+npm run dev                  # http://localhost:3000
 ```
 
-Open [http://localhost:3000](http://localhost:3000) with your browser to see the result.
+The API must be running (default `http://localhost:8000`).
 
-You can start editing the page by modifying `app/page.tsx`. The page auto-updates as you edit the file.
+### Environment
 
-This project uses [`next/font`](https://nextjs.org/docs/app/building-your-application/optimizing/fonts) to automatically optimize and load [Geist](https://vercel.com/font), a new font family for Vercel.
+| Variable | Purpose |
+|---|---|
+| `NEXT_PUBLIC_API_URL` | Backend base URL. Defaults to `http://localhost:8000` |
+| `NEXT_PUBLIC_SUPABASE_URL` | Supabase project URL — enables "Continue with Google" |
+| `NEXT_PUBLIC_SITE_URL` | Public site URL, used for absolute Open Graph / canonical URLs |
+| `API_PROXY_TARGET` | Server-side proxy target for `/api/*` (defaults to `NEXT_PUBLIC_API_URL`'s default) |
 
-## Learn More
+`next.config.ts` proxies `/api/*` to the backend, so the browser only ever talks to
+this origin — no CORS setup is needed, and the portal works unchanged from a phone
+or a tunnel.
 
-To learn more about Next.js, take a look at the following resources:
+## Face detection in the browser
 
-- [Next.js Documentation](https://nextjs.org/docs) - learn about Next.js features and API.
-- [Learn Next.js](https://nextjs.org/learn) - an interactive Next.js tutorial.
+`/playground/video` detects faces locally with MediaPipe BlazeFace, then sends one
+crop per face to `POST /faces/search` (the API matches one face per request). The
+WASM runtime and the model are served from `public/mediapipe/` so nothing is fetched
+from a CDN at runtime.
 
-You can check out [the Next.js GitHub repository](https://github.com/vercel/next.js) - your feedback and contributions are welcome!
+## Checks
 
-## Deploy on Vercel
-
-The easiest way to deploy your Next.js app is to use the [Vercel Platform](https://vercel.com/new?utm_medium=default-template&filter=next.js&utm_source=create-next-app&utm_campaign=create-next-app-readme) from the creators of Next.js.
-
-Check out our [Next.js deployment documentation](https://nextjs.org/docs/app/building-your-application/deploying) for more details.
+```bash
+npx tsc --noEmit -p .   # types
+npx eslint .            # lint
+npm run build           # production build
+```
