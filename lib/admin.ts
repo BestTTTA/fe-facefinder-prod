@@ -109,6 +109,7 @@ export type AdminFace = {
   created_at: string;
   image_url?: string | null;
   thumbnail_url?: string | null;
+  image?: { mime_type: string; size_bytes: number; width: number; height: number } | null;
 };
 
 export type UploadLogRow = {
