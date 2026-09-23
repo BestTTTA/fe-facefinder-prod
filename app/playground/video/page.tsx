@@ -32,8 +32,9 @@ type FrameResult = {
   error?: string;
 };
 
-// What we draw over the video for the frame currently on screen.
-type Drawn = { box: Box; label: string; matched: boolean };
+// What we draw over the video for the frame currently on screen. Only recognised
+// people get a box; unidentified faces are counted but not outlined.
+type Drawn = { box: Box; label: string };
 
 export default function VideoPlaygroundPage() {
   const videoRef = useRef<HTMLVideoElement | null>(null);
@@ -61,6 +62,9 @@ export default function VideoPlaygroundPage() {
   const [searches, setSearches] = useState(0);
   const [detectorState, setDetectorState] = useState<"loading" | "ready" | "failed">("loading");
   const [thumbIssue, setThumbIssue] = useState<string | null>(null);
+  // People counting: the latest frame, and the busiest frame of the session.
+  const [frameCount, setFrameCount] = useState<{ faces: number; known: number; unknown: number } | null>(null);
+  const [peak, setPeak] = useState<{ faces: number; at: number } | null>(null);
 
   useEffect(() => {
     try {
@@ -99,6 +103,8 @@ export default function VideoPlaygroundPage() {
 
   /* ---------- overlay ---------- */
 
+  const countRef = useRef(0);
+
   const paint = useCallback(() => {
     const m = getMedia();
     const c = overlayRef.current;
@@ -114,17 +120,27 @@ export default function VideoPlaygroundPage() {
     const oy = (c.height - mh * scale) / 2;
     const sx = scale;
     const sy = scale;
+    if (countRef.current > 0) {
+      const label = `${countRef.current} ${countRef.current === 1 ? "person" : "people"} in frame`;
+      ctx.font = "600 15px system-ui, sans-serif";
+      const w = ctx.measureText(label).width + 20;
+      ctx.fillStyle = "rgba(26,29,51,0.82)";
+      ctx.fillRect(12, 12, w, 30);
+      ctx.fillStyle = "#fff";
+      ctx.fillText(label, 22, 32);
+    }
+
     for (const d of drawnRef.current) {
       const x = ox + d.box.x1 * sx;
       const y = oy + d.box.y1 * sy;
       const w = (d.box.x2 - d.box.x1) * sx;
       const h = (d.box.y2 - d.box.y1) * sy;
       ctx.lineWidth = 3;
-      ctx.strokeStyle = d.matched ? "#f59209" : "#9aa0ad";
+      ctx.strokeStyle = "#f59209";
       ctx.strokeRect(x, y, w, h);
       ctx.font = "600 13px system-ui, sans-serif";
       const tw = ctx.measureText(d.label).width + 12;
-      ctx.fillStyle = d.matched ? "#f59209" : "#4b5162";
+      ctx.fillStyle = "#f59209";
       ctx.fillRect(x, Math.max(0, y - 22), tw, 20);
       ctx.fillStyle = "#fff";
       ctx.fillText(d.label, x + 6, Math.max(13, y - 8));
@@ -133,6 +149,7 @@ export default function VideoPlaygroundPage() {
 
   const clearOverlay = useCallback(() => {
     drawnRef.current = [];
+    countRef.current = 0;
     paint();
   }, [paint]);
 
@@ -141,6 +158,8 @@ export default function VideoPlaygroundPage() {
   }, []);
 
   const reset = useCallback(() => {
+    setFrameCount(null);
+    setPeak(null);
     thumbCache.current.clear();
     setThumbIssue(null);
     setHits({});
@@ -252,10 +271,16 @@ export default function VideoPlaygroundPage() {
 
       if (boxes.length === 0) {
         drawnRef.current = [];
+        countRef.current = 0;
         paint();
+        setFrameCount({ faces: 0, known: 0, unknown: 0 });
         pushFrame({ at, faces: 0, matched: [], unknown: 0, ms: Math.round(performance.now() - t0) });
         return;
       }
+
+      countRef.current = boxes.length;
+      setFrameCount({ faces: boxes.length, known: 0, unknown: 0 });
+      setPeak((p) => (p && p.faces >= boxes.length ? p : { faces: boxes.length, at }));
 
       const use = boxes.slice(0, maxFaces);
       const drawn: Drawn[] = [];
@@ -285,7 +310,7 @@ export default function VideoPlaygroundPage() {
             // Two boxes on the same person (overlapping tiles) must not count twice.
             const duplicate = seenThisFrame.has(person.id);
             seenThisFrame.add(person.id);
-            drawn.push({ box, matched: true, label: `${name} · ${(d.confidence * 100).toFixed(0)}%` });
+            drawn.push({ box, label: `${name} · ${(d.confidence * 100).toFixed(0)}%` });
             if (!duplicate) matched.push(name);
             const snapshot = cropToDataUrl(m, box);
             const thumb = await referenceThumb(person.id);
@@ -308,14 +333,13 @@ export default function VideoPlaygroundPage() {
             });
           } else {
             unknown += 1;
-            drawn.push({ box, matched: false, label: "unknown" });
           }
         } catch (e) {
           setSearches((n) => n + 1);
           if (e instanceof ApiError) {
             if (e.code === "NO_FACE_DETECTED") {
               // The crop was too small or blurry for the server-side detector.
-              drawn.push({ box, matched: false, label: "unclear" });
+              unknown += 1;
             } else if (e.status === 429 || e.status === 401 || e.status === 403) {
               stop();
               setFatal(
@@ -324,7 +348,6 @@ export default function VideoPlaygroundPage() {
               break;
             } else {
               frameError = e.code;
-              drawn.push({ box, matched: false, label: e.code });
             }
           } else {
             stop();
@@ -336,6 +359,7 @@ export default function VideoPlaygroundPage() {
         paint();
       }
 
+      setFrameCount({ faces: boxes.length, known: seenThisFrame.size, unknown });
       pushFrame({
         at,
         faces: boxes.length,
@@ -530,10 +554,6 @@ export default function VideoPlaygroundPage() {
               )}
               <Button variant="outline" onClick={reset} disabled={running}>Clear</Button>
             </div>
-            <p className="mt-3 text-xs text-muted">
-              {scanned} frame{scanned === 1 ? "" : "s"} · {searches} search{searches === 1 ? "" : "es"}
-              {rate.limit ? ` · rate ${rate.remaining}/${rate.limit} per min` : ""}
-            </p>
             {source !== "image" && worstCasePerMin > 10 && (
               <p className="mt-1 text-xs text-amber-700">
                 Up to ~{worstCasePerMin} searches/min with a full frame. The Free package allows 10/min.
@@ -545,6 +565,32 @@ export default function VideoPlaygroundPage() {
         {fatal && (
           <p className="mt-4 rounded-2xl border border-red-200 bg-red-50 px-4 py-3 text-sm text-red-700">{fatal}</p>
         )}
+
+        <div className="mt-6 grid grid-cols-2 gap-3 sm:grid-cols-4">
+          <Count
+            label="People in frame"
+            value={frameCount ? frameCount.faces : "—"}
+            hint={
+              frameCount && frameCount.faces > maxFaces
+                ? `only ${maxFaces} searched`
+                : frameCount && frameCount.faces > 0
+                  ? `${frameCount.known} known · ${frameCount.unknown} unknown`
+                  : undefined
+            }
+            live={running}
+          />
+          <Count
+            label="Busiest frame"
+            value={peak ? peak.faces : "—"}
+            hint={peak && source === "file" ? `at ${fmtClock(peak.at)}` : undefined}
+          />
+          <Count label="People identified" value={detected.length} hint="unique, whole session" />
+          <Count
+            label="Frames · searches"
+            value={`${scanned} · ${searches}`}
+            hint={rate.limit ? `rate ${rate.remaining}/${rate.limit} per min` : undefined}
+          />
+        </div>
 
         <div className="mt-6 grid gap-6 lg:grid-cols-[1.3fr_1fr]">
           <div>
@@ -698,6 +744,30 @@ export default function VideoPlaygroundPage() {
       </main>
       <Footer />
     </>
+  );
+}
+
+/** A single counter tile. */
+function Count({
+  label,
+  value,
+  hint,
+  live = false,
+}: {
+  label: string;
+  value: number | string;
+  hint?: string;
+  live?: boolean;
+}) {
+  return (
+    <div className="rounded-2xl border border-line bg-surface px-4 py-3">
+      <p className="flex items-center gap-1.5 text-xs text-muted">
+        {live && <span className="h-1.5 w-1.5 animate-pulse rounded-full bg-orange" />}
+        {label}
+      </p>
+      <p className="mt-0.5 text-2xl font-semibold tabular-nums tracking-tight">{value}</p>
+      <p className="text-[11px] text-muted">{hint ?? " "}</p>
+    </div>
   );
 }
 
